@@ -1,0 +1,9 @@
+scikit-learn
+pandas
+mlflow==2.7.1
+dvc
+dvc-s3
+pytest
+psycopg2-binary
+boto3
+python-dotenv==1.2.3

@@ -1,0 +1,60 @@
+name: Local MLOps pipeline
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: local-mlops-deployment
+  cancel-in-progress: false
+jobs:
+  train-and-deploy:
+    if: github.ref == 'refs/heads/main' && vars.MLOPS_RUNNER_READY == 'true'
+    runs-on: [self-hosted, Windows, X64, mlops-local]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONUTF8: '1'
+      MLFLOW_TRACKING_URI: http://localhost:5000
+      MLFLOW_S3_ENDPOINT_URL: http://localhost:9000
+      AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+    steps:
+      - name: Check required credentials
+        run: |
+          foreach ($requiredKey in @('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'POSTGRES_PASSWORD')) {
+            if (-not [Environment]::GetEnvironmentVariable($requiredKey)) { throw "Missing required secret for $requiredKey" }
+          }
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Python environment
+        run: |
+          py -3.11 -m venv .venv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip --use-feature=truststore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\.venv\Scripts\python.exe -m pip install -r requirements.txt -c constraints.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\.venv\Scripts\python.exe -m pip check
+          exit $LASTEXITCODE
+      - name: Test quality gate
+        run: |
+          .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+          exit $LASTEXITCODE
+      - name: Start existing infrastructure
+        run: |
+          docker compose -p mlops up -d --wait --wait-timeout 180
+          exit $LASTEXITCODE
+      - name: Restore versioned dataset from MinIO
+        run: |
+          .\.venv\Scripts\python.exe -m dvc pull
+          exit $LASTEXITCODE
+      - name: Train, quality gate and deploy exact version
+        run: |
+          .\.venv\Scripts\python.exe scripts/pipeline.py
+          exit $LASTEXITCODE

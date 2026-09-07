@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv*/
+venv/
+data.csv
+*.pkl
+*.joblib
+*.parquet
+*.log
+.env
+.env.*
+!.env.example
+mlruns/
+mlartifacts/
+mlflow.db
+artifacts/
+.DS_Store
